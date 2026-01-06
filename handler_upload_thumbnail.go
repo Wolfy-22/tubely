@@ -3,7 +3,11 @@ package main
 import (
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -45,7 +49,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	contentType := thumbanilHeader.Header.Get("Content-Type")
 
-	tBytes, err := io.ReadAll(thumbnailData)
+	_, err = io.ReadAll(thumbnailData)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "error reading bytes", err)
 		return
@@ -62,9 +66,34 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	videoThumbnails[video.ID] = thumbnail{data: tBytes, mediaType: contentType}
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error parsing media type", err)
+		return
+	}
 
-	thumbnailURL := fmt.Sprintf("http://localhost:<8091>/api/thumbnails/{%v}", video.ID)
+	ext := strings.Split(mediaType, "/")
+
+	if mediaType != "image/jpeg" && mediaType != "image/png" {
+		respondWithError(w, http.StatusNotAcceptable, "content type must be either image/jpeg or image/png", err)
+		return
+	}
+
+	filePath := filepath.Join(cfg.assetsRoot, videoIDString)
+
+	file, err := os.Create(fmt.Sprintf("%v.%v", filePath, ext[1]))
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error creating file", err)
+		return
+	}
+
+	_, err = io.Copy(file, thumbnailData)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error saving thumbnail", err)
+		return
+	}
+
+	thumbnailURL := fmt.Sprintf("http://localhost:8091/%v", filePath)
 
 	video.ThumbnailURL = &thumbnailURL
 
